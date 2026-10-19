@@ -21,25 +21,27 @@
 
 ## Overview
 
-When building with AI in [Zed Editor](https://zed.dev) via the **Agent Client Protocol (ACP)** and Google Antigravity, developers encounter two major pain points:
-1. **Hidden Quota Depletion**: Using heavy reasoning models like **Claude 3.7 Sonnet**, **Claude 3.5 Opus**, or **Gemini 2.5 Pro** burns through quota limits with no visual warning inside Zed until prompts fail.
-2. **Disruptive Account Switching**: Switching accounts manually requires editing config files or clearing tokens, often disrupting open chat histories.
+When building with AI in [Zed Editor](https://zed.dev), [Antigravity IDE](https://antigravity.google), or [Ghostex](https://ghostex.sh) / **Antigravity CLI (`agy`)**, developers encounter two major pain points:
+1. **Hidden Quota Depletion**: Using heavy reasoning models like **Claude 3.7 Sonnet**, **Claude 3.5 Opus**, or **Gemini 2.5 Pro** burns through quota limits with no visual warning until prompts fail.
+2. **Disruptive Account Switching**: Switching accounts manually requires editing config files or clearing tokens, often disrupting open editor windows or terminal sessions.
 
-**ZedGravity** runs natively in your macOS Menu Bar, giving you continuous live visibility into Gemini, Claude/GPT, and image generation quotas. When an account runs low, its intelligent auto-switcher seamlessly hot-reloads the Zed ACP server in the background—**preserving all open editor windows and active chat history**.
+**ZedGravity** runs natively in your macOS Menu Bar, giving you continuous live visibility into Gemini, Claude/GPT, and image generation quotas. When an account runs low, its intelligent auto-switcher seamlessly hot-reloads credentials for **Zed ACP**, **Antigravity CLI / Ghostex**, and **Antigravity IDE** in the background.
 
 ---
 
 ## Key Features
 
 - **Dynamic macOS Menu Bar Widget**: Displays live remaining percentages side-by-side (`G: 74% • C: 0% • Img: 74%`) following Apple Human Interface Guidelines.
-- **Intelligent Quota Auto-Switch**: Automatically swaps Zed ACP to the healthiest backup account when current quota falls $\le 5\%$.
+- **Intelligent Quota Auto-Switch**: Automatically swaps credentials to the healthiest backup account when current quota falls $\le 5\%$.
+  - Multi-Client Support: **Zed ACP**, **Antigravity CLI / Ghostex (`agy`)**, and **Antigravity IDE**.
   - Target Focus: Monitor **Claude / GPT Only**, **Gemini Only**, or **Both**.
 - **Zero Chat Loss**: Uses atomic token updates and clean process signaling so Zed automatically respawns the ACP server without dropping active conversations.
+- **Ghostex & Terminal Agent Ready**: Synchronizes `~/.gemini/antigravity-cli/antigravity-oauth-token`, `jetski-standalone-oauth-token`, and `google_accounts.json` with strict POSIX `0600` permissions.
 - **Battery-Optimized Smart Sync**: Background polling refreshes *only* the active account being used, saving up to 85% CPU and network requests compared to legacy tools.
   - Profiles: *Balanced (60s)*, *Fast (15s)*, *Battery Saver (5m)*, or *Manual*.
 - **Zero Password Prompts**: Credentials and refresh tokens are protected in a private local vault with strict POSIX `0600` permissions—eliminating repetitive macOS Keychain password dialogs.
 - **1-Click Import**: Instantly migrates existing accounts and OAuth tokens from `~/.antigravity_tools` or local config files with zero setup required.
-- **System Notifications**: Native macOS alert banners with sound when any monitored model enters critical quota thresholds.
+- **System Notifications**: Native macOS alert banners with sound when any monitored model enters critical quota thresholds or auto-switches.
 
 ---
 
@@ -48,8 +50,8 @@ When building with AI in [Zed Editor](https://zed.dev) via the **Agent Client Pr
 | Requirement | Supported Version | Notes |
 | :--- | :--- | :--- |
 | **Operating System** | macOS 14.0+ (Sonoma, Sequoia) | Native Apple Silicon (M1/M2/M3/M4) & Intel |
-| **Editor** | [Zed Editor](https://zed.dev) (v0.150+) | Must have Assistant panel enabled |
-| **ACP Server** | Antigravity CLI (`antigravity acp`) | Standard Google Antigravity extension daemon |
+| **Editor / Terminal** | [Zed Editor](https://zed.dev) (v0.150+), [Ghostex](https://ghostex.sh), Terminal | Supports Zed ACP, Ghostex (`zmx`), and `agy` |
+| **ACP / CLI** | Antigravity CLI (`agy`, `antigravity acp`) | Standard Google Antigravity daemon & CLI |
 | **Google Account** | Free or Google Cloud Code Pro | Direct OAuth2 token exchange |
 
 ---

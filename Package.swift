@@ -13,7 +13,10 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "ZedGravity",
-            path: "Sources"
+            path: "Sources",
+            linkerSettings: [
+                .unsafeFlags(["-Xlinker", "-export_dynamic"])
+            ]
         ),
         .testTarget(
             name: "ZedGravityTests",

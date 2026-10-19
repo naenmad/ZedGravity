@@ -115,33 +115,80 @@ public struct MenuBarView: View {
     private var accountSwitcherBar: some View {
         HStack {
             Menu {
-                Section("Switch Zed ACP Account") {
+                Section("Switch Account (\(viewModel.enabledTargetsSummary))") {
                     ForEach(viewModel.accounts) { account in
-                        let isZedActive = account.email.lowercased() == (viewModel.activeZedACPEmail ?? "").lowercased()
+                        let isFullyActive = viewModel.isAccountFullyActive(account)
+                        let activeTargets = viewModel.activeTargetsForAccount(account)
                         Button {
                             Task {
-                                await viewModel.switchZedACP(to: account.id)
+                                await viewModel.switchUnifiedAccount(to: account.id)
                             }
                         } label: {
                             HStack {
                                 Text(account.email.isEmpty ? account.name : account.email)
                                 Text("(\(account.accountTier.displayName))")
-                                if isZedActive {
-                                    Text("• Active in Zed")
+                                if isFullyActive {
+                                    Text("✓ Active")
+                                } else if !activeTargets.isEmpty {
+                                    Text("• Active in \(activeTargets.joined(separator: ", "))")
                                 }
                             }
                         }
                     }
                 }
 
-                Section("Switch Antigravity IDE") {
-                    ForEach(viewModel.accounts) { account in
-                        Button {
-                            Task {
-                                await viewModel.switchAntigravityIDE(to: account.id)
+                Menu("Switch Specific Target...") {
+                    Section("Antigravity CLI / Ghostex Only") {
+                        ForEach(viewModel.accounts) { account in
+                            let isCLIActive = account.email.lowercased() == (viewModel.activeCLIEmail ?? "").lowercased()
+                            Button {
+                                Task {
+                                    await viewModel.switchAntigravityCLI(to: account.id)
+                                }
+                            } label: {
+                                HStack {
+                                    Text(account.email.isEmpty ? account.name : account.email)
+                                    if isCLIActive {
+                                        Text("• Active")
+                                    }
+                                }
                             }
-                        } label: {
-                            Text(account.email.isEmpty ? account.name : account.email)
+                        }
+                    }
+
+                    Section("Zed Editor ACP Only") {
+                        ForEach(viewModel.accounts) { account in
+                            let isZedActive = account.email.lowercased() == (viewModel.activeZedACPEmail ?? "").lowercased()
+                            Button {
+                                Task {
+                                    await viewModel.switchZedACP(to: account.id)
+                                }
+                            } label: {
+                                HStack {
+                                    Text(account.email.isEmpty ? account.name : account.email)
+                                    if isZedActive {
+                                        Text("• Active")
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Section("Antigravity IDE Only") {
+                        ForEach(viewModel.accounts) { account in
+                            let isIDEActive = account.email.lowercased() == (viewModel.activeIDEAccountEmail ?? "").lowercased()
+                            Button {
+                                Task {
+                                    await viewModel.switchAntigravityIDE(to: account.id)
+                                }
+                            } label: {
+                                HStack {
+                                    Text(account.email.isEmpty ? account.name : account.email)
+                                    if isIDEActive {
+                                        Text("• Active")
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -196,23 +243,47 @@ public struct MenuBarView: View {
 
             Spacer()
 
-            if viewModel.isSwitchingZedACP || viewModel.isSwitchingIDE {
+            if viewModel.isSwitchingAccount || viewModel.isSwitchingZedACP || viewModel.isSwitchingIDE || viewModel.isSwitchingCLI {
                 ProgressView()
                     .scaleEffect(0.5)
                     .frame(width: 14, height: 14)
+            } else if let msg = viewModel.unifiedSwitchStatusMessage {
+                Text(msg)
+                    .font(.system(size: 9.5, weight: .medium))
+                    .foregroundColor(viewModel.isUnifiedSwitchSuccess ? .accentColor : .red)
+                    .lineLimit(1)
+            } else if let msg = viewModel.cliSwitchStatusMessage {
+                Text(msg)
+                    .font(.system(size: 9.5, weight: .medium))
+                    .foregroundColor(viewModel.isCLISwitchSuccess ? .purple : .red)
+                    .lineLimit(1)
             } else if let msg = viewModel.zedACPSwitchStatusMessage {
                 Text(msg)
                     .font(.system(size: 9.5, weight: .medium))
                     .foregroundColor(viewModel.isZedACPSwitchSuccess ? .green : .red)
                     .lineLimit(1)
-            } else if viewModel.activeZedACPEmail != nil {
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(viewModel.isZedACPRunning ? Color.green : Color.orange)
-                        .frame(width: 5, height: 5)
-                    Text("Zed ACP")
-                        .font(.system(size: 9.5, weight: .semibold))
-                        .foregroundColor(.secondary)
+            } else {
+                HStack(spacing: 5) {
+                    if viewModel.activeCLIEmail != nil {
+                        HStack(spacing: 3) {
+                            Circle()
+                                .fill(viewModel.isGhostexOrCLIRunning ? Color.purple : Color.secondary)
+                                .frame(width: 5, height: 5)
+                            Text("CLI")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundColor(viewModel.isGhostexOrCLIRunning ? .purple : .secondary)
+                        }
+                    }
+                    if viewModel.activeZedACPEmail != nil {
+                        HStack(spacing: 3) {
+                            Circle()
+                                .fill(viewModel.isZedACPRunning ? Color.green : Color.secondary)
+                                .frame(width: 5, height: 5)
+                            Text("Zed")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundColor(viewModel.isZedACPRunning ? .green : .secondary)
+                        }
+                    }
                 }
             }
         }

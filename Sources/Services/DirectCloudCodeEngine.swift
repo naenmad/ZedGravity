@@ -41,8 +41,17 @@ public final class DirectCloudCodeEngine: Sendable {
         public let subscriptionTier: String
     }
 
-    /// Directly refreshes Google OAuth access token using standard OAuth2 refresh_token grant
-    public func refreshAccessToken(refreshToken: String) async throws -> String {
+    public struct OAuthTokenDetails: Sendable {
+        public let accessToken: String
+        public let refreshToken: String
+        public let idToken: String?
+        public let expiresIn: Int
+        public let scope: String?
+        public let tokenType: String
+    }
+
+    /// Directly refreshes Google OAuth tokens using standard OAuth2 refresh_token grant, returning full token details
+    public func refreshOAuthTokenDetails(refreshToken: String) async throws -> OAuthTokenDetails {
         guard let url = URL(string: tokenEndpoint) else {
             throw URLError(.badURL)
         }
@@ -74,7 +83,25 @@ public final class DirectCloudCodeEngine: Sendable {
             throw URLError(.cannotParseResponse)
         }
 
-        return accessToken
+        let idToken = json["id_token"] as? String
+        let expiresIn = (json["expires_in"] as? Int) ?? 3600
+        let scope = json["scope"] as? String
+        let tokenType = (json["token_type"] as? String) ?? "Bearer"
+
+        return OAuthTokenDetails(
+            accessToken: accessToken,
+            refreshToken: refreshToken,
+            idToken: idToken,
+            expiresIn: expiresIn,
+            scope: scope,
+            tokenType: tokenType
+        )
+    }
+
+    /// Directly refreshes Google OAuth access token using standard OAuth2 refresh_token grant
+    public func refreshAccessToken(refreshToken: String) async throws -> String {
+        let details = try await refreshOAuthTokenDetails(refreshToken: refreshToken)
+        return details.accessToken
     }
 
     /// Fetches authoritative quota buckets and model list directly from Google Cloud Code API

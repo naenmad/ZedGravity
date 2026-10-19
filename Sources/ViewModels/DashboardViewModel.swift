@@ -115,6 +115,40 @@ public final class DashboardViewModel: ObservableObject {
     @Published public var autoRotateZedACPEnabled: Bool = false
     public let zedACPSyncService = ZedACPSyncService.shared
 
+    // Antigravity CLI & Ghostex Synchronization State
+    @Published public var activeCLIEmail: String? = nil
+    @Published public var isGhostexOrCLIRunning: Bool = false
+    @Published public var isSwitchingCLI: Bool = false
+    @Published public var cliSwitchStatusMessage: String? = nil
+    @Published public var isCLISwitchSuccess: Bool = true
+    @Published public var autoRotateCLIEnabled: Bool = false
+    public let cliSyncService = AntigravityCLISyncService.shared
+
+    // Unified Synchronization Targets (CLI + Zed ACP + IDE)
+    @Published public var syncTargetCLI: Bool = true {
+        didSet { UserDefaults.standard.set(syncTargetCLI, forKey: "com.antibox.sync_target_cli") }
+    }
+    @Published public var syncTargetZed: Bool = true {
+        didSet { UserDefaults.standard.set(syncTargetZed, forKey: "com.antibox.sync_target_zed") }
+    }
+    @Published public var syncTargetIDE: Bool = false {
+        didSet { UserDefaults.standard.set(syncTargetIDE, forKey: "com.antibox.sync_target_ide") }
+    }
+
+    // Unified Auto-Switch & Hot-Swap State
+    @Published public var autoSwitchEnabled: Bool = true {
+        didSet {
+            UserDefaults.standard.set(autoSwitchEnabled, forKey: "com.antibox.auto_switch_enabled")
+            UserDefaults.standard.set(autoSwitchEnabled, forKey: "com.antibox.auto_rotate_zed_acp")
+            UserDefaults.standard.set(autoSwitchEnabled, forKey: "com.antibox.auto_rotate_cli")
+            autoRotateZedACPEnabled = autoSwitchEnabled
+            autoRotateCLIEnabled = autoSwitchEnabled
+        }
+    }
+    @Published public var isSwitchingAccount: Bool = false
+    @Published public var unifiedSwitchStatusMessage: String? = nil
+    @Published public var isUnifiedSwitchSuccess: Bool = true
+
     private var secondTimer: AnyCancellable?
     private var syncTimer: AnyCancellable?
 
@@ -122,7 +156,17 @@ public final class DashboardViewModel: ObservableObject {
         self.menuBarShowGemini = UserDefaults.standard.object(forKey: "com.antibox.bar_show_gemini") as? Bool ?? true
         self.menuBarShowClaudeGpt = UserDefaults.standard.object(forKey: "com.antibox.bar_show_claude_gpt") as? Bool ?? true
         self.menuBarShowImage = UserDefaults.standard.object(forKey: "com.antibox.bar_show_image") as? Bool ?? false
-        self.autoRotateZedACPEnabled = UserDefaults.standard.object(forKey: "com.antibox.auto_rotate_zed_acp") as? Bool ?? false
+        self.syncTargetCLI = UserDefaults.standard.object(forKey: "com.antibox.sync_target_cli") as? Bool ?? true
+        self.syncTargetZed = UserDefaults.standard.object(forKey: "com.antibox.sync_target_zed") as? Bool ?? true
+        self.syncTargetIDE = UserDefaults.standard.object(forKey: "com.antibox.sync_target_ide") as? Bool ?? false
+        let storedAutoSwitch = UserDefaults.standard.object(forKey: "com.antibox.auto_switch_enabled") as? Bool
+        let legacyZed = UserDefaults.standard.object(forKey: "com.antibox.auto_rotate_zed_acp") as? Bool
+        let legacyCLI = UserDefaults.standard.object(forKey: "com.antibox.auto_rotate_cli") as? Bool
+        let initialAutoSwitch = storedAutoSwitch ?? (legacyZed ?? legacyCLI ?? true)
+        self.autoSwitchEnabled = initialAutoSwitch
+        self.autoRotateZedACPEnabled = initialAutoSwitch
+        self.autoRotateCLIEnabled = initialAutoSwitch
+
         if let freqRaw = UserDefaults.standard.string(forKey: "com.antibox.sync_frequency"),
            let freq = SyncFrequency(rawValue: freqRaw) {
             self.syncFrequency = freq
@@ -137,6 +181,7 @@ public final class DashboardViewModel: ObservableObject {
         startRealtimeTickers()
         checkActiveIDEAccount()
         checkActiveZedACP()
+        checkActiveCLIAccount()
     }
 
     deinit {
@@ -149,17 +194,21 @@ public final class DashboardViewModel: ObservableObject {
         let stored = accountStore.loadAccounts()
         if !stored.isEmpty {
             self.accounts = stored
-            let (zedEmail, matchedAcc) = zedACPSyncService.getActiveAccount(from: stored)
+            let (zedEmail, matchedZed) = zedACPSyncService.getActiveAccount(from: stored)
+            let (cliEmail, matchedCLI) = cliSyncService.getActiveAccount(from: stored)
             self.activeZedACPEmail = zedEmail
-            self.selectedAccountId = matchedAcc?.id ?? stored.first?.id
+            self.activeCLIEmail = cliEmail
+            self.selectedAccountId = matchedZed?.id ?? matchedCLI?.id ?? stored.first?.id
         } else {
             // First run: migrate accounts once into AntiBox independent store
             let migration = accountStore.migrateFromAntigravityTools()
             if migration.success {
                 self.accounts = accountStore.loadAccounts()
-                let (zedEmail, matchedAcc) = zedACPSyncService.getActiveAccount(from: self.accounts)
+                let (zedEmail, matchedZed) = zedACPSyncService.getActiveAccount(from: self.accounts)
+                let (cliEmail, matchedCLI) = cliSyncService.getActiveAccount(from: self.accounts)
                 self.activeZedACPEmail = zedEmail
-                self.selectedAccountId = matchedAcc?.id ?? accounts.first?.id
+                self.activeCLIEmail = cliEmail
+                self.selectedAccountId = matchedZed?.id ?? matchedCLI?.id ?? accounts.first?.id
             } else if syncService.isAvailable, let localSync = syncService.syncFromLocalStore() {
                 self.accounts = localSync.accounts
                 self.selectedAccountId = localSync.currentAccountId ?? accounts.first?.id
@@ -183,10 +232,11 @@ public final class DashboardViewModel: ObservableObject {
             .sink { [weak self] now in
                 guard let self = self else { return }
                 self.currentTime = now
-                // Periodic background check of active IDE / ACP state every 5 seconds
+                // Periodic background check of active IDE / ACP / CLI state every 5 seconds
                 if Int(now.timeIntervalSince1970) % 5 == 0 {
                     self.checkActiveZedACP()
                     self.checkActiveIDEAccount()
+                    self.checkActiveCLIAccount()
                 }
             }
 
@@ -223,6 +273,9 @@ public final class DashboardViewModel: ObservableObject {
     /// Currently active account for focused model quota inspection
     public var selectedAccount: Account? {
         if let id = selectedAccountId, let acc = accounts.first(where: { $0.id == id }) {
+            return acc
+        }
+        if let cliEmail = activeCLIEmail, let acc = accounts.first(where: { $0.email.lowercased() == cliEmail.lowercased() }) {
             return acc
         }
         if let zedEmail = activeZedACPEmail, let acc = accounts.first(where: { $0.email.lowercased() == zedEmail.lowercased() }) {
@@ -377,26 +430,66 @@ public final class DashboardViewModel: ObservableObject {
             }
         }
 
-        // Auto-Rotate Zed ACP if active account has depleted/low quota (<= 5%)
-        if autoRotateZedACPEnabled {
-            let (rotated, oldEmail, newEmail, reason) = await zedACPSyncService.checkAndAutoRotateIfNeeded(
-                accounts: self.accounts,
-                focus: autoRotateFocus,
-                thresholdPercent: 5.0
-            )
-            if rotated, let old = oldEmail, let new = newEmail {
-                if let newAcc = accounts.first(where: { $0.email.lowercased() == new.lowercased() }) {
-                    self.selectedAccountId = newAcc.id
+        // Unified Auto-Switch across enabled targets (CLI, Zed ACP, IDE) if quota falls <= 5%
+        if autoSwitchEnabled, let currentAccount = selectedAccount {
+            let geminiPct = currentAccount.remainingPercentage
+            let claudeModels = currentAccount.quotas.filter { $0.provider == .claude || $0.name.lowercased().contains("gpt") }
+            let claudePct = claudeModels.map { $0.remainingPercentage }.min() ?? 100.0
+
+            var isDepleted = false
+            var reason = ""
+            switch autoRotateFocus {
+            case .both:
+                if claudePct <= 5.0 {
+                    isDepleted = true
+                    reason = "Claude/GPT quota is \(Int(claudePct))%"
+                } else if geminiPct <= 5.0 {
+                    isDepleted = true
+                    reason = "Gemini quota is \(Int(geminiPct))%"
                 }
-                checkActiveZedACP()
-                let reasonText = reason ?? "quota depleted"
-                zedACPSwitchStatusMessage = "Auto-Switched to \(new) (\(reasonText))"
-                notificationManager.notifyAutoSwitched(oldEmail: old, newEmail: new, reason: reasonText)
-                Task {
-                    try? await Task.sleep(nanoseconds: 8_000_000_000)
-                    if self.zedACPSwitchStatusMessage?.contains("Auto-Switched") == true {
-                        self.zedACPSwitchStatusMessage = nil
+            case .claude:
+                if claudePct <= 5.0 {
+                    isDepleted = true
+                    reason = "Claude/GPT quota reached \(Int(claudePct))%"
+                }
+            case .gemini:
+                if geminiPct <= 5.0 {
+                    isDepleted = true
+                    reason = "Gemini quota reached \(Int(geminiPct))%"
+                }
+            }
+
+            if isDepleted {
+                let candidates = accounts.filter { acc in
+                    guard acc.id != currentAccount.id else { return false }
+                    let accGemini = acc.remainingPercentage
+                    let accClaude = acc.quotas.filter { $0.provider == .claude || $0.name.lowercased().contains("gpt") }.map { $0.remainingPercentage }.min() ?? 100.0
+                    switch autoRotateFocus {
+                    case .both: return accClaude > 5.0 && accGemini > 5.0
+                    case .claude: return accClaude > 5.0
+                    case .gemini: return accGemini > 5.0
                     }
+                }.sorted { a, b in
+                    switch autoRotateFocus {
+                    case .both: return a.effectiveQuotaPercentage > b.effectiveQuotaPercentage
+                    case .claude:
+                        let aC = a.quotas.filter { $0.provider == .claude || $0.name.lowercased().contains("gpt") }.map { $0.remainingPercentage }.min() ?? 0.0
+                        let bC = b.quotas.filter { $0.provider == .claude || $0.name.lowercased().contains("gpt") }.map { $0.remainingPercentage }.min() ?? 0.0
+                        return aC > bC
+                    case .gemini:
+                        return a.remainingPercentage > b.remainingPercentage
+                    }
+                }
+
+                if let targetCandidate = candidates.first {
+                    await switchUnifiedAccount(to: targetCandidate.id)
+                    let oldEmail = currentAccount.email.isEmpty ? currentAccount.name : currentAccount.email
+                    let newEmail = targetCandidate.email.isEmpty ? targetCandidate.name : targetCandidate.email
+                    notificationManager.sendNotification(
+                        title: "🔄 Auto-Switched Unified Account",
+                        subtitle: "\(newEmail) Activated",
+                        body: "Switched from \(oldEmail) because \(reason). Active in \(enabledTargetsSummary)."
+                    )
                 }
             }
         }
@@ -501,6 +594,134 @@ public final class DashboardViewModel: ObservableObject {
             try? await Task.sleep(nanoseconds: 4_000_000_000)
             if self.zedACPSwitchStatusMessage == result.message {
                 self.zedACPSwitchStatusMessage = nil
+            }
+        }
+    }
+
+    // MARK: - Antigravity CLI & Ghostex Management
+
+    public func checkActiveCLIAccount() {
+        self.isGhostexOrCLIRunning = cliSyncService.isGhostexOrCLIRunning
+        let (email, matchedAccount) = cliSyncService.getActiveAccount(from: accounts)
+        self.activeCLIEmail = email
+        if selectedAccountId == nil {
+            if let matched = matchedAccount {
+                self.selectedAccountId = matched.id
+                recalculateBudget()
+            } else if let email = email, let matched = accounts.first(where: { $0.email.lowercased() == email.lowercased() }) {
+                self.selectedAccountId = matched.id
+                recalculateBudget()
+            }
+        }
+    }
+
+    public func toggleAutoRotateCLI() {
+        autoRotateCLIEnabled.toggle()
+        UserDefaults.standard.set(autoRotateCLIEnabled, forKey: "com.antibox.auto_rotate_cli")
+    }
+
+    /// Switches Antigravity CLI & Ghostex directly to the target account credentials
+    public func switchAntigravityCLI(to accountId: UUID) async {
+        guard let account = accounts.first(where: { $0.id == accountId }) else { return }
+        isSwitchingCLI = true
+        self.selectedAccountId = accountId
+        self.activeCLIEmail = account.email.isEmpty ? account.name : account.email
+        recalculateBudget()
+
+        let result = await cliSyncService.switchToAccount(account: account)
+        isSwitchingCLI = false
+        isCLISwitchSuccess = result.success
+        cliSwitchStatusMessage = result.message
+        self.selectedAccountId = accountId
+        checkActiveCLIAccount()
+        recalculateBudget()
+
+        // Clear status message after 4 seconds
+        Task {
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            if self.cliSwitchStatusMessage == result.message {
+                self.cliSwitchStatusMessage = nil
+            }
+        }
+    }
+
+    // MARK: - Unified Synchronization & Auto-Switch
+
+    public func isAccountFullyActive(_ account: Account) -> Bool {
+        let email = account.email.lowercased()
+        if syncTargetCLI && (activeCLIEmail ?? "").lowercased() != email { return false }
+        if syncTargetZed && (activeZedACPEmail ?? "").lowercased() != email { return false }
+        if syncTargetIDE && (activeIDEAccountEmail ?? "").lowercased() != email { return false }
+        return true
+    }
+
+    public func activeTargetsForAccount(_ account: Account) -> [String] {
+        let email = account.email.lowercased()
+        var targets: [String] = []
+        if (activeCLIEmail ?? "").lowercased() == email { targets.append("CLI") }
+        if (activeZedACPEmail ?? "").lowercased() == email { targets.append("Zed") }
+        if (activeIDEAccountEmail ?? "").lowercased() == email { targets.append("IDE") }
+        return targets
+    }
+
+    public var enabledTargetsSummary: String {
+        var t: [String] = []
+        if syncTargetCLI { t.append("CLI") }
+        if syncTargetZed { t.append("Zed") }
+        if syncTargetIDE { t.append("IDE") }
+        return t.isEmpty ? "None" : t.joined(separator: " + ")
+    }
+
+    public func toggleAutoSwitch() {
+        autoSwitchEnabled.toggle()
+    }
+
+    /// Switches the specified account across all currently enabled targets (CLI, Zed ACP, IDE) simultaneously
+    public func switchUnifiedAccount(to accountId: UUID) async {
+        guard let account = accounts.first(where: { $0.id == accountId }) else { return }
+        isSwitchingAccount = true
+        selectedAccountId = accountId
+        recalculateBudget()
+
+        var successTargets: [String] = []
+        var failedTargets: [String] = []
+
+        if syncTargetCLI {
+            let cliRes = await cliSyncService.switchToAccount(account: account)
+            if cliRes.success { successTargets.append("CLI") } else { failedTargets.append("CLI") }
+        }
+
+        if syncTargetZed {
+            let zedRes = await zedACPSyncService.switchToAccount(account: account)
+            if zedRes.success { successTargets.append("Zed") } else { failedTargets.append("Zed") }
+        }
+
+        if syncTargetIDE {
+            let ideRes = await ideSyncService.switchToAccount(account: account)
+            if ideRes.success { successTargets.append("IDE") } else { failedTargets.append("IDE") }
+        }
+
+        isSwitchingAccount = false
+        let email = account.email.isEmpty ? account.name : account.email
+
+        if !successTargets.isEmpty {
+            isUnifiedSwitchSuccess = true
+            unifiedSwitchStatusMessage = "Switched to \(email) for \(successTargets.joined(separator: " + "))"
+        } else {
+            isUnifiedSwitchSuccess = false
+            unifiedSwitchStatusMessage = "Failed to switch \(email) (\(failedTargets.joined(separator: ", ")))"
+        }
+
+        checkActiveCLIAccount()
+        checkActiveZedACP()
+        checkActiveIDEAccount()
+        recalculateBudget()
+
+        // Clear status message after 4 seconds
+        Task {
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            if self.unifiedSwitchStatusMessage?.contains("Switched") == true || self.unifiedSwitchStatusMessage?.contains("Failed") == true {
+                self.unifiedSwitchStatusMessage = nil
             }
         }
     }

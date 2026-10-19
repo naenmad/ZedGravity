@@ -1,5 +1,5 @@
 import XCTest
-@testable import AntiBox
+@testable import ZedGravity
 
 final class SmartBudgetAdvisorTests: XCTestCase {
     func testAccountQuotaCalculations() {

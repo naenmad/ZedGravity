@@ -103,6 +103,15 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
         )
     }
 
+    /// Dispatches an immediate notification when Antigravity CLI auto-switches accounts
+    public func notifyCLIAutoSwitched(oldEmail: String, newEmail: String, reason: String) {
+        sendNotification(
+            title: "🔄 Antigravity CLI Auto-Switched",
+            subtitle: "\(newEmail) Activated",
+            body: "Switched from \(oldEmail) because \(reason). Sesi Ghostex & CLI otomatis menggunakan akun ini."
+        )
+    }
+
     /// Dispatches an arbitrary notification to macOS
     public func sendNotification(title: String, subtitle: String? = nil, body: String) {
         guard let center = center else {
